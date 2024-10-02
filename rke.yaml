@@ -1,0 +1,139 @@
+- hosts: all
+  become: true
+  tasks:
+    # Update hosts file on all nodes
+    - name: Add master node to hosts file
+      lineinfile:
+        path: /etc/hosts
+        line: "192.168.39.160 k8s-master-192-168-39-160"
+        state: present
+
+    # Disable swap and update package lists
+    - name: Disable swap
+      command: swapoff -a
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+
+    # Install and configure common packages
+    - name: Install NFS common
+      apt:
+        name: nfs-common
+        state: present
+    - name: Upgrade packages
+      apt:
+        upgrade: yes
+    - name: Remove unused packages
+      apt:
+        autoremove: yes
+    - name: Configure network bridges
+      copy:
+        dest: /etc/sysctl.d/99-kubernetes.conf
+        content: |
+          net.bridge.bridge-nf-call-ip6tables = 1
+          net.bridge.bridge-nf-call-iptables = 1
+    - name: Configure network bridges (repeated for clarity)
+      copy:
+        dest: /etc/sysctl.d/kubernetes.conf
+        content: |
+          net.bridge.bridge-nf-call-ip6tables = 1
+          net.bridge.bridge-nf-call-iptables = 1
+    - name: Apply sysctl changes
+      command: sysctl --system
+
+# Master Node Tasks (assuming single master)
+- hosts: master
+  become: true
+  tasks:
+    - name: Install RKE2 as master
+      shell: curl -sfL https://get.rke2.io | INSTALL_RKE2_CHANNEL=v1.29.3+rke2r1 INSTALL_RKE2_TYPE=server sh -
+    - name: Start and enable RKE2 service
+      service:
+        name: rke2-server
+        state: started
+        enabled: yes
+    - name: Wait for RKE2 to generate token
+      wait_for:
+        path: /var/lib/rancher/rke2/server/node-token
+        state: present
+        timeout: 300
+
+    - name: Read the RKE2 token
+      slurp:
+        src: /var/lib/rancher/rke2/server/node-token
+      register: rke2_token
+
+    - name: Set token variable
+      set_fact:
+        rancher1_token: "{{ rke2_token.content | b64decode }}"
+
+#secondary master Nodes
+
+- hosts: secondarymasters
+  become: true
+  tasks:
+    - name: Set Rancher1 IP variable
+      set_fact:
+        rancher1_ip: "192.168.39.160"  # Change this to your Rancher1 IP
+    
+    - name: Get Rancher1 token from the master node
+      set_fact:
+        rancher1_token: "{{ hostvars['k8s-master-192-168-39-160'].rancher1_token }}"
+
+    - name: Use Rancher1 token variable
+      debug:
+        msg: "The Rancher1 token is: {{ rancher1_token }}"
+
+    - name: Install RKE2 as server
+      shell: curl -sfL https://get.rke2.io | INSTALL_RKE2_CHANNEL=v1.29.3+rke2r1 INSTALL_RKE2_TYPE=server sh -
+    
+    - name: Create RKE2 config directory
+      file:
+        path: /etc/rancher/rke2/
+        state: directory
+    
+    - name: Create RKE2 config file
+      template:
+        src: rke2_config.j2
+        dest: /etc/rancher/rke2/config.yaml
+    
+    - name: Enable and start RKE2 server service
+      service:
+        name: rke2-server.service
+        state: started
+        enabled: yes
+
+# Worker/Agent Node Tasks
+- hosts: agent
+  become: true
+  tasks:
+    - name: Set Rancher1 IP variable
+      set_fact:
+        rancher1_ip: "192.168.39.160"  # Change this to your Rancher1 IP
+    
+    - name: Get Rancher1 token from the master node
+      set_fact:
+        rancher1_token: "{{ hostvars['k8s-master-192-168-39-160'].rancher1_token }}"
+
+    - name: Use Rancher1 token variable
+      debug:
+        msg: "The Rancher1 token is: {{ rancher1_token }}"
+
+    - name: Install RKE2 as agent
+      shell: curl -sfL https://get.rke2.io | INSTALL_RKE2_CHANNEL=v1.29.3+rke2r1 INSTALL_RKE2_TYPE=agent sh -
+    
+    - name: Create RKE2 config directory
+      file:
+        path: /etc/rancher/rke2/
+        state: directory
+    
+    - name: Create RKE2 config file
+      template:
+        src: rke2_config.j2
+        dest: /etc/rancher/rke2/config.yaml
+    
+    - name: Enable and start RKE2 agent service
+      service:
+        name: rke2-agent.service
+        state: started
+        enabled: yes

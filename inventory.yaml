@@ -1,0 +1,24 @@
+all:
+  children:
+    master:
+      hosts:
+        k8s-master-192-168-39-160:
+          ansible_host: 192.168.39.160
+          ansible_ssh_user: rancher
+          ansible_ssh_private_key_file: /home/skn/rancher.pem
+    secondarymasters:
+      hosts:
+        k8s-master-192-168-39-161:
+          ansible_host: 192.168.39.161
+          ansible_ssh_user: rancher
+          ansible_ssh_private_key_file: /home/skn/rancher.pem
+    agent:
+      hosts:
+        k8s-agent-192-168-39-162:
+          ansible_host: 192.168.39.162
+          ansible_ssh_user: rancher
+          ansible_ssh_private_key_file: /home/skn/rancher.pem
+    
+
+
+  
